@@ -1,0 +1,28 @@
+#!/usr/bin/env bpftrace
+
+#include <linux/fs.h>
+#include <linux/uio.h>
+#include <uapi/linux/uio.h>
+
+
+BEGIN
+{
+	printf("Tracing VFS Write & Read operations... Hit Ctrl-C to end.\n");
+}
+
+kprobe:__generic_file_write_iter, kprobe:generic_file_read_iter 
+/
+$1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino
+/
+{
+	$address = ((struct kiocb *) arg0)->ki_pos;
+	$size = ((struct iov_iter *) arg1)->count;
+	$inode = (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino;
+	
+   	printf("[%lu]\tcomm:%s \tinode:%lu \tfunc:%s \taddress:%lld \t size:%zu\n", nsecs, comm, $inode, func, $address, $size);
+}
+
+
+END
+{
+}
