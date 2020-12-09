@@ -4,11 +4,94 @@
 #include <linux/uio.h>
 #include <uapi/linux/uio.h>
 
+#include <linux/bio.h>
+#include <linux/blk_types.h>
+#include <linux/genhd.h>
+#include <linux/spinlock_types.h>
+#include <linux/sched.h>
+#include <linux/workqueue.h>
+
+#define DIO_PAGES		64
+#define READ			0
+#define WRITE			1
+
+#define SECTOR_SIZE 512 /* TODO: get it from bio struct */
+
+#define IO_READ_EVENT  ("R")
+#define IO_WRITE_EVENT ("W")
+#define IO_EVENT_NONE  ("?")
+
+#define REQ_OP_BITS	8
+#define REQ_OP_MASK	((1 << REQ_OP_BITS) - 1)
+
+
+/* dio_state communicated between submission path and end_io */
+struct dio {
+	int flags;			/* doesn't change */
+	int op;
+	int op_flags;
+	blk_qc_t bio_cookie;
+	struct gendisk *bio_disk;
+	struct inode *inode;
+	loff_t i_size;			/* i_size when submitted */
+	dio_iodone_t *end_io;		/* IO completion function */
+
+	void *private;			/* copy from map_bh.b_private */
+
+	/* BIO completion state */
+	spinlock_t bio_lock;		/* protects BIO fields below */
+	int page_errors;		/* errno from get_user_pages() */
+	int is_async;			/* is IO async ? */
+	bool defer_completion;		/* defer AIO completion to workqueue? */
+	bool should_dirty;		/* if pages should be dirtied */
+	int io_error;			/* IO error in completion path */
+	unsigned long refcount;		/* direct_io_worker() and bios */
+	struct bio *bio_list;		/* singly linked via bi_private */
+	struct task_struct *waiter;	/* waiting task (NULL if none) */
+
+	/* AIO related stuff */
+	struct kiocb *iocb;		/* kiocb */
+	ssize_t result;                 /* IO result */
+
+	/*
+	 * pages[] (and any fields placed after it) are not zeroed out at
+	 * allocation time.  Don't add new fields after pages[] unless you
+	 * wish that they not be zeroed.
+	 */
+	union {
+		struct page *pages[DIO_PAGES];	/* page buffer */
+		struct work_struct complete_work;/* deferred AIO completion */
+	};
+};
+
+
 
 BEGIN
 {
-	printf("Tracing VFS Write & Read operations... Hit Ctrl-C to end.\n");
+	printf("Tracing VFS & BLK Write/Read operations... Hit Ctrl-C to end.\n");
 }
+
+
+
+kprobe:generic_make_request
+/
+$1 == ((struct dio *) ((struct bio *) arg0)->bi_private)->inode->i_ino &
+comm =="dd"
+/
+{
+	$address = ((struct bio *) arg0)->bi_iter.bi_sector;
+
+	//#define bio_sectors(bio)	bvec_iter_sectors((bio)->bi_iter)
+	//#define bvec_iter_sectors(iter)	((iter).bi_size >> 9)
+
+	$size =  ((((struct bio *) arg0)->bi_iter).bi_size >> 9) * SECTOR_SIZE;
+
+	$op =(((((struct bio *) arg0)->bi_opf & REQ_OP_MASK)) & 1) ? IO_WRITE_EVENT : IO_READ_EVENT;
+	
+   	printf("[%lu] \tcomm:%s \tfunc:blk:%s \taddress:%llu \tsize:%zu \top:%s\n", nsecs, comm, func, $address, $size, $op);
+}
+
+
 
 kprobe:__generic_file_write_iter, kprobe:generic_file_read_iter 
 /
@@ -17,10 +100,11 @@ $1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inod
 {
 	$address = ((struct kiocb *) arg0)->ki_pos;
 	$size = ((struct iov_iter *) arg1)->count;
-	$inode = (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino;
+	//$inode = (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino;
 	
-   	printf("[%lu]\tcomm:%s \tinode:%lu \tfunc:%s \taddress:%lld \t size:%zu\n", nsecs, comm, $inode, func, $address, $size);
+   	printf("[%lu]\tcomm:%s \tfunc:vfs:%s \taddress:%lld \t size:%zu\n", nsecs, comm, func, $address, $size);
 }
+
 
 
 END
