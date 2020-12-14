@@ -71,9 +71,12 @@ BEGIN
 	printf("Tracing VFS & BLK Write/Read operations... Hit Ctrl-C to end.\n");
 }
 
+
+
 kprobe:__generic_file_write_iter
 /
-$1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino 
+$1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino &
+comm == "fio"
 /
 {
 	$address = ((struct kiocb *) arg0)->ki_pos;
@@ -86,12 +89,34 @@ $1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inod
 
    	//printf("[%lu]\tcomm:%s \tfunc:vfs:%s \taddress:%lld \t size:%zu\n", nsecs, comm, func, $address, $size);
 
-   	printf("%lu,%s,%llu,%llu,%s,%s,%d\n",nsecs, $op, $address, $size, "VFS",comm,pid);
+   	printf("%lu,%s,%llu,%llu,%s,%s,%s,%d\n",nsecs, $op, $address, $size, "VFS", func,comm,pid);
 }
+
+
+kprobe:aio_complete
+/
+$1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino &
+comm == "fio"
+/
+{
+	$address = ((struct kiocb *) arg0)->ki_pos;
+	$size = ((struct iov_iter *) arg1)->count;
+
+	//$inode = (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino;
+	
+  
+   	$op = "To_do"; 
+
+   	//printf("[%lu]\tcomm:%s \tfunc:vfs:%s \taddress:%lld \t size:%zu\n", nsecs, comm, func, $address, $size);
+
+   	printf("%lu,%s,%llu,%llu,%s,%s,%s,%d\n",nsecs, $op, $address, $size, "VFS", func,comm,pid);
+}
+
 
 kprobe:generic_file_read_iter 
 /
-$1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino 
+$1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inode)->i_ino &
+comm == "fio"
 /
 {
 	$address = ((struct kiocb *) arg0)->ki_pos;
@@ -103,12 +128,16 @@ $1 == (struct inode *)(((struct file *)((struct kiocb *) arg0)->ki_filp)->f_inod
 
    	//printf("[%lu]\tcomm:%s \tfunc:vfs:%s \taddress:%lld \t size:%zu\n", nsecs, comm, func, $address, $size);
 
-   	printf("%lu,%s,%llu,%llu,%s,%s,%d\n",nsecs, $op, $address, $size, "VFS",comm,pid);
+   	printf("%lu,%s,%llu,%llu,%s,%s,%s,%d\n",nsecs, $op, $address, $size, "VFS", func,comm,pid);
+   	
 }
 
+
+// start bio block request
 kprobe:generic_make_request
 /
-$1 == ((struct dio *) ((struct bio *) arg0)->bi_private)->inode->i_ino 
+$1 == ((struct dio *) ((struct bio *) arg0)->bi_private)->inode->i_ino &
+comm == "fio"
 /
 {
 	$address = ((struct bio *) arg0)->bi_iter.bi_sector;
@@ -122,7 +151,26 @@ $1 == ((struct dio *) ((struct bio *) arg0)->bi_private)->inode->i_ino
 	
    	//printf("[%lu] \tcomm:%s \tfunc:blk:%s \taddress:%llu \tsize:%zu \top:%s\n", nsecs, comm, func, $address, $size, $op);
    	
-   	printf("%lu,%s,%llu,%llu,%s,%s,%d\n",nsecs, $op, $address, $size, "BLK",comm,pid);
+   	printf("%lu,%s,%llu,%llu,%s,%s,%s,%d\n",nsecs, $op, $address, $size, "BLK", func, comm, pid);
+}
+
+
+// end bio block request
+kprobe:bio_endio
+/
+$1 == ((struct dio *) ((struct bio *) arg0)->bi_private)->inode->i_ino &
+comm == "fio"
+/
+{
+	$address = ((struct bio *) arg0)->bi_iter.bi_sector;
+
+	$size =  ((((struct bio *) arg0)->bi_iter).bi_done);
+
+	$op =(((((struct bio *) arg0)->bi_opf & REQ_OP_MASK)) & 1) ? IO_WRITE_EVENT : IO_READ_EVENT;
+	
+   	//printf("[%lu] \tcomm:%s \tfunc:blk:%s \taddress:%llu \tsize:%zu \top:%s\n", nsecs, comm, func, $address, $size, $op);
+   	
+   	printf("%lu,%s,%llu,%llu,%s,%s,%s,%d\n",nsecs, $op, $address, $size, "BLK", func, comm,pid);
 }
 
 END
