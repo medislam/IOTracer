@@ -5,6 +5,7 @@
 Installation:
 
 `sudo apt-get update -y`
+
 `sudo apt-get install -y fio`
 
 `sudo snap install --devmode bpftrace `
@@ -12,7 +13,7 @@ Installation:
 
 ## execution
 
-sudo bpftrace iotracer.bt [inode_of_file_to_be_traced] > trace_output
+`sudo bpftrace iotracer.bt [inode_of_file_to_be_traced] > trace_output`
 
 do Ctrl+c to stop tracing (after launching the fio test script)
 
