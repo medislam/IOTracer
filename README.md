@@ -10,14 +10,14 @@ Installation:
 
 `sudo snap install --devmode bpftrace `
 
+for more information: https://github.com/iovisor/bpftrace/blob/master/INSTALL.md
+
 
 ## execution
 
 `sudo bpftrace iotracer.bt [traced_command_name] [traced_file_inode] > trace_output`
 
-do Ctrl+c to stop tracing (after launching the fio test script)
-
-do `./script traced_file_path`  
+ 
 
 
 
