@@ -1,12 +1,10 @@
 # bpftrace_iotracer_like
 
-## dependencies: bpftrace, fio
+## dependencies: bpftrace
 
 Installation:
 
 `sudo apt-get update -y`
-
-`sudo apt-get install -y fio`
 
 `sudo snap install --devmode bpftrace `
 
