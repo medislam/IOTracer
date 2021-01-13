@@ -13,7 +13,7 @@ Installation:
 
 ## execution
 
-`sudo bpftrace iotracer.bt [inode_of_file_to_be_traced] > trace_output`
+`sudo bpftrace iotracer.bt [traced_command_name] [traced_file_inode] > trace_output`
 
 do Ctrl+c to stop tracing (after launching the fio test script)
 
