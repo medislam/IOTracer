@@ -10,6 +10,10 @@ Installation:
 
 for more information: https://github.com/iovisor/bpftrace/blob/master/INSTALL.md
 
+# On Debian:
+
+`sudo apt install linux-headers-amd64 bpftrace`
+
 
 ## execution
 
