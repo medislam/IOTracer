@@ -50,10 +50,50 @@ program=("""
 
 	#include <linux/sched.h>
 
+	#define DIO_PAGES		64
+
 	#define IO_READ_EVENT  ('R')
 	#define IO_WRITE_EVENT ('W')
 
 	#define SECTOR_SIZE 512
+
+	struct dio {
+		int flags;			/* doesn't change */
+		int op;
+		int op_flags;
+		blk_qc_t bio_cookie;
+		struct gendisk *bio_disk;
+		struct inode *inode;
+		loff_t i_size;			/* i_size when submitted */
+		dio_iodone_t *end_io;		/* IO completion function */
+
+		void *private;			/* copy from map_bh.b_private */
+
+		/* BIO completion state */
+		spinlock_t bio_lock;		/* protects BIO fields below */
+		int page_errors;		/* errno from get_user_pages() */
+		int is_async;			/* is IO async ? */
+		bool defer_completion;		/* defer AIO completion to workqueue? */
+		bool should_dirty;		/* if pages should be dirtied */
+		int io_error;			/* IO error in completion path */
+		unsigned long refcount;		/* direct_io_worker() and bios */
+		struct bio *bio_list;		/* singly linked via bi_private */
+		struct task_struct *waiter;	/* waiting task (NULL if none) */
+
+		/* AIO related stuff */
+		struct kiocb *iocb;		/* kiocb */
+		ssize_t result;                 /* IO result */
+
+		/*
+		 * pages[] (and any fields placed after it) are not zeroed out at
+		 * allocation time.  Don't add new fields after pages[] unless you
+		 * wish that they not be zeroed.
+		 */
+		union {
+			struct page *pages[DIO_PAGES];	/* page buffer */
+			struct work_struct complete_work;/* deferred AIO completion */
+		};
+	};
 
 	struct data_log{
     	u64 	timestamp;
@@ -62,8 +102,9 @@ program=("""
     	int 	pid;
     	char 	level;
     	char 	op;
-    	char comm[16];
-    	char probe;
+    	char 	comm[16];
+    	char 	probe;
+    	u32 	inode;
 
 	};
 
@@ -72,10 +113,16 @@ program=("""
 	ssize_t VFS_write_handler(struct pt_regs *ctx,struct file * file, const char __user * buf, size_t count, loff_t * pos){
 		bpf_trace_printk("VFS_write_handler\\n");
 
+		unsigned long i_ino = file->f_inode->i_ino;
+
+		//unsigned long i_ino = 1605494;
 
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+
+		if(FILTER_INODE)
 			return 0;
 
 
@@ -88,7 +135,8 @@ program=("""
 		log.level = 'V';
 		log.op  = 'W';
 
-		log.probe = 'G';
+		log.probe = '1';
+		log.inode = i_ino;
 
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
 
@@ -101,10 +149,19 @@ program=("""
 	ssize_t VFS_read_handler(struct pt_regs *ctx,struct file * file, const char __user * buf, size_t count, loff_t * pos){
 		bpf_trace_printk("VFS_write_handler\\n");
 
+		
+		unsigned long i_ino = file->f_inode->i_ino;
+
+
+		//unsigned long i_ino = 1605494;
+
 
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+
+		if(FILTER_INODE)
 			return 0;
 
 
@@ -117,7 +174,8 @@ program=("""
 		log.level = 'V';
 		log.op  = 'R';
 
-		log.probe = 'H';
+		log.probe = '2';
+		log.inode = i_ino;
 
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
 
@@ -131,10 +189,16 @@ program=("""
 	ssize_t generic_perform_write_handler(struct pt_regs *ctx,struct file *file, struct iov_iter *i, loff_t pos){
 		bpf_trace_printk("generic_file_write_iter_handler\\n");
 
+		unsigned long i_ino = file->f_inode->i_ino;
+
+		//unsigned long i_ino = 1605494;
 
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+
+		if(FILTER_INODE)
 			return 0;
 
 
@@ -147,7 +211,8 @@ program=("""
 		log.level = 'V';
 		log.op  = 'W';
 
-		log.probe = 'A';
+		log.probe = '3';
+		log.inode = i_ino;
 
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
 
@@ -160,10 +225,17 @@ program=("""
 
 	int generic_file_write_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *from){
 		bpf_trace_printk("generic_file_write_iter_handler\\n");
+
+		unsigned long i_ino = iocb->ki_filp->f_inode->i_ino;
+
+		//unsigned long i_ino = 1605494;
 		
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+
+		if(FILTER_INODE)
 			return 0;
 
 
@@ -178,10 +250,10 @@ program=("""
 		log.level = 'V';
 		log.op  = 'W';
 
-		log.probe = 'B';
+		log.probe = '4';
 
 		
-
+		log.inode = i_ino;
 
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
 
@@ -193,10 +265,16 @@ program=("""
 
 	int generic_file_read_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *iter){
 		bpf_trace_printk("generic_file_read_iter_handler\\n");
-		
+
+		unsigned long i_ino = iocb->ki_filp->f_inode->i_ino;
+		//unsigned long i_ino = 1605494;
+
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+
+		if(FILTER_INODE)
 			return 0;
 
 
@@ -211,10 +289,10 @@ program=("""
 
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
 
-		log.probe = 'C';
+		log.probe = '5';
 
 		
-
+		log.inode = i_ino;
 
 		events.perf_submit(ctx, &log, sizeof(log));
 
@@ -225,9 +303,17 @@ program=("""
 	int submit_bio_handler(struct pt_regs *ctx, struct bio *bio){
 		bpf_trace_printk("submit_bio_handler\\n");
 
+		unsigned long i_ino = ((struct dio *) bio->bi_private)->inode->i_ino;
+
+		//unsigned long i_ino = 1605494;
+
+
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+
+		if(FILTER_INODE)
 			return 0;
 
 
@@ -240,8 +326,8 @@ program=("""
 		log.level = 'B';
 		log.op  = (((bio->bi_opf & REQ_OP_MASK)) & 1) ? IO_WRITE_EVENT : IO_READ_EVENT;
 
-		log.probe = 'D';
-
+		log.probe = '6';
+		log.inode = i_ino;
 		
 
 
@@ -255,9 +341,16 @@ program=("""
 	int submit_bio_noacct_handler(struct pt_regs *ctx, struct bio *bio){
 		bpf_trace_printk("submit_bio_handler\\n");
 
+		unsigned long i_ino = ((struct dio *) bio->bi_private)->inode->i_ino;
+
+		//unsigned long i_ino = 1605494;
+
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+
+		if(FILTER_INODE)
 			return 0;
 
 
@@ -270,8 +363,8 @@ program=("""
 		log.level = 'B';
 		log.op  = (((bio->bi_opf & REQ_OP_MASK)) & 1) ? IO_WRITE_EVENT : IO_READ_EVENT;
 
-		log.probe = 'E';
-
+		log.probe = '7';
+		log.inode = i_ino;
 		
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
 
@@ -284,9 +377,16 @@ program=("""
 	int bio_endio_handler(struct pt_regs *ctx, struct bio *bio){
 		bpf_trace_printk("bio_endio\\n");
 
+		unsigned long i_ino = ((struct dio *) bio->bi_private)->inode->i_ino;
+
+		//unsigned long i_ino = 1605494;
+
 		int pid = bpf_get_current_pid_tgid();
 
 		if(FILTER_PID)
+			return 0;
+			
+		if(FILTER_INODE)
 			return 0;
 
 		struct data_log log = {};
@@ -298,7 +398,8 @@ program=("""
 		log.level = 'B';
 		log.op  = (((bio->bi_opf & REQ_OP_MASK)) & 1) ? IO_WRITE_EVENT : IO_READ_EVENT;
 
-		log.probe = 'F';
+		log.probe = '8';
+		log.inode = i_ino;
 		
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
 
@@ -352,8 +453,8 @@ print("Pour stopper eBPF ..... Ctrl+C")
 def afficher_evenement(cpu, data, size):
     #evenement = ct.cast(data, ct.POINTER(Data)).contents
     evenement = b["events"].event(data)	
-    log = (evenement.timestamp,evenement.address,evenement.size,evenement.level,evenement.op,evenement.pid,evenement.comm, evenement.probe)
-    format_ = "%.0f, %.0f, %.0f, %s, %s, %d, %s, %s"
+    log = (evenement.timestamp,evenement.address,evenement.size,evenement.level,evenement.op,evenement.pid,evenement.comm, evenement.probe, evenement.inode)
+    format_ = "%.0f, %.0f, %.0f, %s, %s, %d, %s, %s, %.0f"
     print(format_ % log)
     #evenement = b["events"].event(data)
     #print("%.0f, %.0f, %.0f, %s, %s, %d, %s" ,evenement.timestamp,evenement.address,evenement.size,evenement.level,evenement.op,evenement.pid,evenement.comm)

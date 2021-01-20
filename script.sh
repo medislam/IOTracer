@@ -1,40 +1,62 @@
 #!/bin/bash
 
-FioEngines=(sync psync posixaio pvsync vsync pvsync2)
-#FioEngines=(sync posixaio)
-echo "FioEngines: ${FioEngines[*]}"
+#FioEngines=(sync psync posixaio pvsync vsync pvsync2)
+FioEngines=(sync)
+#echo "FioEngines: ${FioEngines[*]}"
 
-RequestTypes=(read write randread randwrite rw randrw)
-#RequestTypes=(randrw)
-echo "RequestTypes: ${RequestTypes[*]}"
+#RequestTypes=(read write randread randwrite rw randrw)
+RequestTypes=(randrw)
+#echo "RequestTypes: ${RequestTypes[*]}"
 
-#create a file of 32MByte using dd
-#dd if=/dev/zero of=/tmp/iotracer_test_file bs=1024K count=32 oflag=direct
+fin="/dev/urandom"
+#fin="iotracer_test_file2"
+fout="iotracer_test_file"
+
+inode=`stat -c '%i' $fout`
+
+echo $inode
+
+echo "cleanning result"
+rm -rf result/*
+
 
 for i in "${FioEngines[@]}"; do
 	for j in "${RequestTypes[@]}"; do 
+
+		# trace dd with bcc
 		
-		echo "testing ${i} - ${j} ..."
+		##echo "testing ${i} - ${j} ..."
 
-		# execute the tracing code 
-		#sudo bpftrace -e 'kprobe:vfs* /comm == "fio"/ { printf("@[%ld]\t%s\t%s\t%s\n", nsecs, comm, func, probe); }' > vfs_trace_bpftrace_${i}_${j} &
-		echo "running bpftrace ..." 
+		#/usr/bin/time --format '%U,%S,%E,%P,%M,%K,%F,%R,%W,%c,%w' -o \
+		#result/bcc_stats_$i_$j.txt 
 
-		# launiching fio
-		fio --name=test --filename=$1  --ioengine=$i --rw=$j -size=128M --bs=4k --direct=1 --numjobs=1 --group_reporting &
+		#dd if=$fin of=$fout bs=8k count=100000 &
+		dd if=$fin of=$fout bs=8k count=100000 conv=fdatasync &
+		#dd if=$fin of=$fout bs=8k count=100000 oflag=direct &
+		#dd if=$fin of=$fout bs=8k count=100000 conv=fdatasync oflag=direct & # trace que vfs_write
+		
+		echo "running dd ..." 
 
-		echo "running fio ..." 
+		sudo python bcc_iotracer.py -t dd -i $inode > result/bcc_$i_$j &
 
+		echo "running bcc"
+
+		
 		# test if fio is terminated 
-		while kill -0 $(pidof fio) 2> /dev/null; do 
+		while kill -0 $(pidof dd) 2> /dev/null; do 
 			sleep 1; 
 		done;  # wait for the process to finish
 
-		sleep 3;
+		sleep 30;
 
-		//kill $(pidof bpftrace)
-		echo "stopping bpftrace ..." 
+		echo "dd process is finished ..." 
+
+		kill $(pidof python)
+		echo "stopping bcc ..." 
+
+		#cat result/bcc_stats_$i_$j.txt >> result/bcc_stats.txt
+		#sudo wc -l result/bcc_$i_$j >> result/bcc_events.txt
+		
 
 	done # inner for
 done # outer for 
-
