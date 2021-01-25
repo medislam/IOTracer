@@ -8,11 +8,18 @@ FioEngines=(sync)
 RequestTypes=(randrw)
 #echo "RequestTypes: ${RequestTypes[*]}"
 
-fin="/dev/urandom"
-#fin="iotracer_test_file2"
-fout="iotracer_test_file"
+#fin="/dev/urandom"
+fin="iotracer_test_file"
+fout="files/iotracer_test_file"
+fout2="files/iotracer_test_file2"
+fout3="files/iotracer_test_file3"
+fout4="files/iotracer_test_file4"
+fout5="files/iotracer_test_file5"
+fout6="files/iotracer_test_file6"
 
-inode=`stat -c '%i' $fout`
+traced="files"
+
+inode=`stat -c '%i' $traced`
 
 echo $inode
 
@@ -30,14 +37,19 @@ for i in "${FioEngines[@]}"; do
 		#/usr/bin/time --format '%U,%S,%E,%P,%M,%K,%F,%R,%W,%c,%w' -o \
 		#result/bcc_stats_$i_$j.txt 
 
-		#dd if=$fin of=$fout bs=8k count=100000 &
-		dd if=$fin of=$fout bs=8k count=100000 conv=fdatasync &
+		#dd if=$fin  of=$fout  bs=8k count=100000  &
+		#dd if=$fin  of=$fout2 bs=8k count=100000  &
+		#dd if=$fin  of=$fout3 bs=8k count=100000  &
+		#dd if=$fin  of=$fout4 bs=8k count=100000  &
+		#dd if=$fin  of=$fout5 bs=8k count=100000  &
+		dd if=$fin  of=$fout6 bs=8k count=100000 oflag=direct &
+		#dd if=$fin of=$fout bs=8k count=100000 conv=fdatasync &
 		#dd if=$fin of=$fout bs=8k count=100000 oflag=direct &
 		#dd if=$fin of=$fout bs=8k count=100000 conv=fdatasync oflag=direct & # trace que vfs_write
 		
 		echo "running dd ..." 
 
-		sudo python bcc_iotracer.py -t dd -i $inode > result/bcc_$i_$j &
+		sudo python bcc_iotracer.py -t dd --dir -i $inode > result/bcc_$i_$j &
 
 		echo "running bcc"
 
@@ -47,11 +59,11 @@ for i in "${FioEngines[@]}"; do
 			sleep 1; 
 		done;  # wait for the process to finish
 
-		sleep 30;
+		sleep 3;
 
 		echo "dd process is finished ..." 
 
-		kill $(pidof python)
+		sudo kill $(pidof python)
 		echo "stopping bcc ..." 
 
 		#cat result/bcc_stats_$i_$j.txt >> result/bcc_stats.txt
