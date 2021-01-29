@@ -595,9 +595,11 @@ b.attach_kprobe(event="bio_endio", fn_name="bio_endio_handler")
 def afficher_evenement(cpu, data, size):
     #evenement = ct.cast(data, ct.POINTER(Data)).contents
     evenement = b["events"].event(data)	
-    log = (evenement.timestamp,evenement.level,evenement.op,evenement.address,evenement.size,evenement.probe,evenement.pid,evenement.comm, evenement.inode, evenement.inodep)
+    log = (evenement.timestamp,evenement.level.decode("utf-8"),evenement.op.decode("utf-8"),evenement.address,evenement.size,evenement.probe.decode("utf-8"),
+           evenement.pid,evenement.comm.decode("utf-8"), evenement.inode, evenement.inodep)
     format_ = "%.0f\t%s\t%s\t%.0f\t%.0f\t%s\t%d\t%s\t%.0f\t%.0f"
     print(format_ % log)
+
     #evenement = b["events"].event(data)
     #print("%.0f, %.0f, %.0f, %s, %s, %d, %s" ,evenement.timestamp,evenement.address,evenement.size,evenement.level,evenement.op,evenement.pid,evenement.comm)
 
