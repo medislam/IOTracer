@@ -587,7 +587,8 @@ def afficher_evenement(cpu, data, size):
 
 
 
-b["events"].open_perf_buffer(afficher_evenement)
+#b["events"].open_perf_buffer(afficher_evenement)
+b["events"].open_perf_buffer(afficher_evenement,page_cnt=256)
 
 # print result to user
 while 1:
