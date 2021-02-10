@@ -22,16 +22,16 @@ parser = argparse.ArgumentParser(
     epilog=examples)
 
 parser.add_argument("-t", "--task",
-    help="trace this task only")
+                    help="trace this task only")
 
 parser.add_argument("-f","--file", action="store_true",
-    help="trace only this file")
+                    help="trace only this file")
 
 parser.add_argument("-d","--dir", action="store_true",
-    help="trace all files of this directory, recursiviy is not allowed")
+                    help="trace all files of this directory, recursiviy is not allowed")
 
 parser.add_argument("-i", "--inode",
-    help="trace this file inode or all children files inode")
+                    help="trace this file inode or all children files inode")
 
 args = parser.parse_args()
 name = args.task
@@ -116,9 +116,10 @@ program=("""
     	u64 	address;
     	u64		size;
     	int 	pid;
+        int 	tid;
     	char 	level;
     	char 	op;
-    	char 	comm[50];
+    	char 	comm[16];
     	char 	probe;
     	u32 	inode;
     	u32 	inodep;
@@ -128,24 +129,8 @@ program=("""
 	BPF_PERF_OUTPUT(events);
 
 	ssize_t VFS_write_handler(struct pt_regs *ctx,struct file * file, const char __user * buf, size_t count, loff_t * pos){
-		bpf_trace_printk("VFS_write_handler\\n");
 
 		unsigned long i_ino  = file->f_inode->i_ino;
-
-		int pid = bpf_get_current_pid_tgid();
-
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
-
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-
-
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-    			return 0;
-
-		//if(FILTER_PID)
-			//return 0;
 		
 		if(FILTER_FILE)
 			return 0;
@@ -156,12 +141,14 @@ program=("""
 		if(FILTER_DIR)
 			return 0;
 
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
 
 		struct data_log log = {};
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = file->f_pos;	
 		log.size = count;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'V';
 		log.op  = 'W';
 		log.probe = '1';
@@ -176,25 +163,8 @@ program=("""
 
 
 	ssize_t VFS_read_handler(struct pt_regs *ctx,struct file * file, const char __user * buf, size_t count, loff_t * pos){
-		bpf_trace_printk("VFS_write_handler\\n");
-
 		
 		unsigned long i_ino  = file->f_inode->i_ino;
-
-		int pid = bpf_get_current_pid_tgid();
-
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
-
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-
-
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-    			return 0;
-
-		//if(FILTER_PID)
-			//return 0;
 		
 		if(FILTER_FILE)
 			return 0;
@@ -205,11 +175,15 @@ program=("""
 		if(FILTER_DIR)
 			return 0;
 
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
+
+
 		struct data_log log = {};
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = file->f_pos;	
 		log.size = count;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'V';
 		log.op  = 'R';
 		log.probe = '2';
@@ -224,32 +198,27 @@ program=("""
 
 
 	int generic_file_write_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *from){
-		bpf_trace_printk("generic_file_write_iter_handler\\n");
+
 		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
-		int pid = bpf_get_current_pid_tgid();
-
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-
-    			return 0;
-		//if(FILTER_PID)
-			//return 0;
 		
 		if(FILTER_FILE)
 			return 0;
+
 		unsigned long i_inop = iocb->ki_filp->f_path.dentry->d_parent->d_inode->i_ino;
 
 		if(FILTER_DIR)
 			return 0;
+
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
+
+
 		struct data_log log = {};
 		size_t s = iov_iter_count(from);
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = iocb->ki_pos;
 		log.size = from->count;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'V';
 		log.op  = 'W';
 		log.probe = '7';
@@ -263,28 +232,33 @@ program=("""
 
 
 	int generic_file_read_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *iter){
-		bpf_trace_printk("generic_file_read_iter_handler\\n");
-		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
-		int pid = bpf_get_current_pid_tgid();
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
+
+		char 	comm2[16];
+		char comm1[16] = "FILTER_CMD";
+
 		bpf_get_current_comm(&comm2, sizeof(comm2));
 		for (int i = 0; i < sizeof(comm1); ++i)
     		if (comm1[i] != comm2[i])
     			return 0;
-		//if(FILTER_PID)
-			//return 0;
+
+		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
+		
 		
 		if(FILTER_FILE)
 			return 0;
+
 		unsigned long i_inop = iocb->ki_filp->f_path.dentry->d_parent->d_inode->i_ino;
 		if(FILTER_DIR)
 			return 0;
+
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
+
 		struct data_log log = {};
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = iocb->ki_pos; 
 		log.size = iter->count;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'V';
 		log.op  = 'R';
 		bpf_get_current_comm(&log.comm, sizeof(log.comm));
@@ -298,24 +272,17 @@ program=("""
 
 
 	ssize_t ext4_file_write_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *from){
-		bpf_trace_printk("ext4_file_write_iter_handler\\n");
 
-		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
-
-		int pid = bpf_get_current_pid_tgid();
-
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
+		char 	comm2[16];
+		char comm1[16] = "FILTER_CMD";
 
 		bpf_get_current_comm(&comm2, sizeof(comm2));
-
-
 		for (int i = 0; i < sizeof(comm1); ++i)
     		if (comm1[i] != comm2[i])
     			return 0;
+	
 
-		//if(FILTER_PID)
-			//return 0;
+		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
 		
 		if(FILTER_FILE)
 			return 0;
@@ -326,6 +293,9 @@ program=("""
 			return 0;
 
 
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
+
+
 		struct data_log log = {};
 
 		size_t s = iov_iter_count(from);
@@ -333,7 +303,8 @@ program=("""
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = iocb->ki_pos;
 		log.size = from->count;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'F';
 		log.op  = 'W';
 
@@ -352,32 +323,26 @@ program=("""
 
 
 	ssize_t ext4_file_read_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *to){
-		bpf_trace_printk("generic_file_read_iter_handler\\n");
 
-		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
-
-		int pid = bpf_get_current_pid_tgid();
-
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
+		char 	comm2[16];
+		char comm1[16] = "FILTER_CMD";
 
 		bpf_get_current_comm(&comm2, sizeof(comm2));
-
-
 		for (int i = 0; i < sizeof(comm1); ++i)
     		if (comm1[i] != comm2[i])
     			return 0;
-
-		//if(FILTER_PID)
-			//return 0;
+	
+		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
 		
 		if(FILTER_FILE)
 			return 0;
 
 		unsigned long i_inop = iocb->ki_filp->f_path.dentry->d_parent->d_inode->i_ino;
 
-		//if(FILTER_DIR)
-			//return 0;
+		if(FILTER_DIR)
+			return 0;
+
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
 
 
 		struct data_log log = {};
@@ -385,7 +350,8 @@ program=("""
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = iocb->ki_pos; 
 		log.size = to->count;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'F';
 		log.op  = 'R';
 
@@ -404,35 +370,28 @@ program=("""
 
 
 	int submit_bio_handler(struct pt_regs *ctx, struct bio *bio){
-		bpf_trace_printk("submit_bio_handler\\n");
+		char 	comm2[16];
+		char comm1[16] = "FILTER_CMD";
+		bpf_get_current_comm(&comm2, sizeof(comm2));
+		for (int i = 0; i < sizeof(comm1); ++i)
+    		if (comm1[i] != comm2[i])
+    			return 0;
+		
 
 		struct dio * dio = (struct dio *) bio->bi_private;
 
 		//unsigned long i_ino  = dio->inode->i_ino;
 		unsigned long i_ino  = bio->bi_io_vec->bv_page->mapping->host->i_ino;
-
-		int pid = bpf_get_current_pid_tgid();
-
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
-
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-
-
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-    			return 0;
-
-		//if(FILTER_PID)
-			//return 0;
 		
 		if(FILTER_FILE)
 			return 0;
 
 		unsigned long i_inop = dio->iocb->ki_filp->f_path.dentry->d_parent->d_inode->i_ino;
 
-		//if(FILTER_DIR)
-			//return 0;
+		if(FILTER_DIR)
+			return 0;
+
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
 
 
 		struct data_log log = {};
@@ -440,10 +399,10 @@ program=("""
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = bio->bi_iter.bi_sector; 
 		log.size = ((bio->bi_iter).bi_size >> 9) * SECTOR_SIZE;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'B';
 		log.op  = (((bio->bi_opf & REQ_OP_MASK)) & 1) ? IO_WRITE_EVENT : IO_READ_EVENT;
-
 		log.probe = '6';
 		log.inode = i_ino;
 		log.inodep = i_inop;
@@ -459,45 +418,39 @@ program=("""
 
 
 	int bio_endio_handler(struct pt_regs *ctx, struct bio *bio){
-		bpf_trace_printk("bio_endio\\n");
 
+		char 	comm2[16];
+		char comm1[16] = "FILTER_CMD";
+
+		bpf_get_current_comm(&comm2, sizeof(comm2));
+		for (int i = 0; i < sizeof(comm1); ++i)
+    		if (comm1[i] != comm2[i])
+    			return 0;
+		
 		struct dio * dio = (struct dio *) bio->bi_private;
 
 		//unsigned long i_ino  = dio->inode->i_ino;
 		unsigned long i_ino  = bio->bi_io_vec->bv_page->mapping->host->i_ino;
-
-		int pid = bpf_get_current_pid_tgid();
-
-		char 	comm2[50];
-		char comm1[50] = "FILTER_CMD";
-
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-
-
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-    			return 0;
-
-		//if(FILTER_PID)
-			//return 0;
 		
 		if(FILTER_FILE)
 			return 0;
 
 		unsigned long i_inop = dio->iocb->ki_filp->f_path.dentry->d_parent->d_inode->i_ino;
 
-		//if(FILTER_DIR)
-			//return 0;
+		if(FILTER_DIR)
+			return 0;
+
+		uint64_t pid_tgid = bpf_get_current_pid_tgid();
 
 		struct data_log log = {};
 
 		log.timestamp = bpf_ktime_get_ns();
 		log.address = bio->bi_iter.bi_sector; 
 		log.size = ((bio->bi_iter).bi_size >> 9) * SECTOR_SIZE;
-		log.pid = bpf_get_current_pid_tgid();
+		log.tid = bpf_get_current_pid_tgid();
+		log.pid = (pid_t)(pid_tgid >> 32);
 		log.level = 'B';
 		log.op  = (((bio->bi_opf & REQ_OP_MASK)) & 1) ? IO_WRITE_EVENT : IO_READ_EVENT;
-
 		log.probe = '8';
 		log.inode = i_ino;
 		log.inodep = i_inop;
@@ -524,20 +477,20 @@ else:
     sys.exit()
 
 if args.inode:
-	#print("FILTER_INODE")
+    #print("FILTER_INODE")
 	if args.file:
-		program = program.replace('FILTER_FILE', 'i_ino != %s' % args.inode)
-		program = program.replace('FILTER_DIR', '0')
-		#print("FILTER_FILE")
+	    program = program.replace('FILTER_FILE', 'i_ino != %s' % args.inode)
+	    program = program.replace('FILTER_DIR', '0')
+	    #print("FILTER_FILE")
 
 	elif args.dir:
-		program = program.replace('FILTER_FILE', '0')
-		program = program.replace('FILTER_DIR', 'i_inop != %s' % args.inode)
-		#print("FILTER_DIR",args.inode)
+	    program = program.replace('FILTER_FILE', '0')
+	    program = program.replace('FILTER_DIR', 'i_inop != %s' % args.inode)
+	    #print("FILTER_DIR",args.inode)
 
 	else:
-		print("you must specify the filter: -f for file or -d for directory")
-		sys.exit()
+	    print("you must specify the filter: -f for file or -d for directory")
+	    sys.exit()
 
 else:
     print("you must specify the traced dir/file inode")
@@ -566,7 +519,7 @@ b.attach_kprobe(event="submit_bio", fn_name="submit_bio_handler")
 b.attach_kprobe(event="bio_endio", fn_name="bio_endio_handler")
 
 #class Data(ct.Structure):
-    #_fields_ = [("timestamp", ct.c_ulonglong),("address", ct.c_ulonglong), ("size", ct.c_ulonglong), ("pid", ct.c_int), \
+#_fields_ = [("timestamp", ct.c_ulonglong),("address", ct.c_ulonglong), ("size", ct.c_ulonglong), ("pid", ct.c_int), \
     #("level", ct.c_char), ("op", ct.c_char), ("comm", ct.c_char_p)]
 
 
@@ -578,17 +531,15 @@ b.attach_kprobe(event="bio_endio", fn_name="bio_endio_handler")
 def afficher_evenement(cpu, data, size):
     #evenement = ct.cast(data, ct.POINTER(Data)).contents
     evenement = b["events"].event(data)	
-    log = (evenement.timestamp,evenement.level.decode("utf-8"),evenement.op.decode("utf-8"),evenement.address,evenement.size,evenement.probe.decode("utf-8"),evenement.pid,evenement.comm.decode("utf-8"), evenement.inode, evenement.inodep)
-    format_ = "%.0f\t%s\t%s\t%.0f\t%.0f\t%s\t%d\t%s\t%.0f\t%.0f"
+    log = (evenement.timestamp,evenement.level.decode("utf8"),evenement.op.decode("utf8"),evenement.address,evenement.size,evenement.probe.decode("utf8"),evenement.pid, evenement.tid,evenement.comm.decode("utf8"), evenement.inode, evenement.inodep)
+    format_ = "%.0f\t%s\t%s\t%.0f\t%.0f\t%s\t%d\t%d\t%s\t%.0f\t%.0f"
     print(format_ % log)
     #evenement = b["events"].event(data)
     #print("%.0f, %.0f, %.0f, %s, %s, %d, %s" ,evenement.timestamp,evenement.address,evenement.size,evenement.level,evenement.op,evenement.pid,evenement.comm)
 
 
 
-
-#b["events"].open_perf_buffer(afficher_evenement)
-b["events"].open_perf_buffer(afficher_evenement,page_cnt=256)
+b["events"].open_perf_buffer(afficher_evenement,page_cnt=8192)
 
 # print result to user
 while 1:
