@@ -11,7 +11,7 @@ from subprocess import check_output
 
 # arguments
 examples ="""
-	./bcc_iotracer.py -t task_name -f -d -i inode 
+	./bcc_iotracer.py -t task_name -f [-d] -i inode -l levels
 	# trace task (specified by its pid) I/O on a dir/file inode. if dir is chosen, no recusivity is done
 """
 
@@ -33,9 +33,13 @@ parser.add_argument("-d","--dir", action="store_true",
 parser.add_argument("-i", "--inode",
                     help="trace this file inode or all children files inode")
 
+parser.add_argument("-l", "--level",
+                    help="trace specified levels: v for vfs, p for page cache, f for fs and b for block")
+
 args = parser.parse_args()
 name = args.task
 inode = args.inode
+level = args.level
 
 #print("task task_name:",name)
 
@@ -63,6 +67,8 @@ program=("""
 	#include <linux/sched.h>
 
 	#include <linux/mm.h>
+
+	#include <linux/mm_types.h>
 
 	#include <linux/file.h>
 
@@ -233,16 +239,7 @@ program=("""
 
 	int generic_file_read_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *iter){
 
-		char 	comm2[16];
-		char comm1[16] = "FILTER_CMD";
-
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-    			return 0;
-
 		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
-		
 		
 		if(FILTER_FILE)
 			return 0;
@@ -272,15 +269,6 @@ program=("""
 
 
 	ssize_t ext4_file_write_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *from){
-
-		char 	comm2[16];
-		char comm1[16] = "FILTER_CMD";
-
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-    			return 0;
-	
 
 		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
 		
@@ -324,14 +312,7 @@ program=("""
 
 	ssize_t ext4_file_read_iter_handler(struct pt_regs *ctx, struct kiocb *iocb, struct iov_iter *to){
 
-		char 	comm2[16];
-		char comm1[16] = "FILTER_CMD";
 
-		bpf_get_current_comm(&comm2, sizeof(comm2));
-		for (int i = 0; i < sizeof(comm1); ++i)
-    		if (comm1[i] != comm2[i])
-    			return 0;
-	
 		unsigned long i_ino  = iocb->ki_filp->f_inode->i_ino;
 		
 		if(FILTER_FILE)
@@ -370,6 +351,7 @@ program=("""
 
 
 	int submit_bio_handler(struct pt_regs *ctx, struct bio *bio){
+		
 		char 	comm2[16];
 		char comm1[16] = "FILTER_CMD";
 		bpf_get_current_comm(&comm2, sizeof(comm2));
@@ -379,17 +361,18 @@ program=("""
 		
 
 		struct dio * dio = (struct dio *) bio->bi_private;
+		//unsigned long i_ino  = dio->refcount;
 
-		//unsigned long i_ino  = dio->inode->i_ino;
 		unsigned long i_ino  = bio->bi_io_vec->bv_page->mapping->host->i_ino;
+
 		
-		if(FILTER_FILE)
-			return 0;
+		//if(FILTER_FILE)
+			//return 0;
 
 		unsigned long i_inop = dio->iocb->ki_filp->f_path.dentry->d_parent->d_inode->i_ino;
 
-		if(FILTER_DIR)
-			return 0;
+		//if(FILTER_DIR)
+			//return 0;
 
 		uint64_t pid_tgid = bpf_get_current_pid_tgid();
 
@@ -428,17 +411,18 @@ program=("""
     			return 0;
 		
 		struct dio * dio = (struct dio *) bio->bi_private;
-
 		//unsigned long i_ino  = dio->inode->i_ino;
+
 		unsigned long i_ino  = bio->bi_io_vec->bv_page->mapping->host->i_ino;
+
 		
-		if(FILTER_FILE)
-			return 0;
+		//if(FILTER_FILE)
+			//return 0;
 
 		unsigned long i_inop = dio->iocb->ki_filp->f_path.dentry->d_parent->d_inode->i_ino;
 
-		if(FILTER_DIR)
-			return 0;
+		//if(FILTER_DIR)
+			//return 0;
 
 		uint64_t pid_tgid = bpf_get_current_pid_tgid();
 
@@ -502,21 +486,30 @@ else:
 b = BPF(text = program)
 
 # Attach kprobes to the functions
+
 ######### VFS probes ############ 
-b.attach_kprobe(event="vfs_write", fn_name="VFS_write_handler")
-b.attach_kprobe(event="vfs_read", fn_name="VFS_read_handler")
+if(level.find('v')!=-1 or level.find('V')!=-1 ):
+	#print("activate vfs probes")
+	b.attach_kprobe(event="vfs_write", fn_name="VFS_write_handler")
+	b.attach_kprobe(event="vfs_read", fn_name="VFS_read_handler")
 
-######### Page cache probes ############ 
-b.attach_kprobe(event="__generic_file_write_iter", fn_name="generic_file_write_iter_handler")
-b.attach_kprobe(event="generic_file_read_iter", fn_name="generic_file_read_iter_handler")
+######### Page cache probes ############
+if(level.find('p')!=-1 or level.find('P')!=-1 ): 
+	#print("activate page cache probes")
+	b.attach_kprobe(event="__generic_file_write_iter", fn_name="generic_file_write_iter_handler")
+	b.attach_kprobe(event="generic_file_read_iter", fn_name="generic_file_read_iter_handler")
 
-######### FS probes ############ 
-b.attach_kprobe(event="ext4_file_write_iter", fn_name="ext4_file_write_iter_handler")
-b.attach_kprobe(event="ext4_file_read_iter", fn_name="ext4_file_read_iter_handler")
+######### FS probes ############
+if(level.find('f')!=-1 or level.find('F')!=-1 ):
+	#print("activate fs probes")
+	b.attach_kprobe(event="ext4_file_write_iter", fn_name="ext4_file_write_iter_handler")
+	b.attach_kprobe(event="ext4_file_read_iter", fn_name="ext4_file_read_iter_handler")
 
 ######### BLK probes ############ 
-b.attach_kprobe(event="submit_bio", fn_name="submit_bio_handler")
-b.attach_kprobe(event="bio_endio", fn_name="bio_endio_handler")
+if(level.find('b')!=-1 or level.find('B')!=-1 ):
+	#print("activate block probes")
+	b.attach_kprobe(event="submit_bio", fn_name="submit_bio_handler")
+	b.attach_kprobe(event="bio_endio", fn_name="bio_endio_handler")
 
 #class Data(ct.Structure):
 #_fields_ = [("timestamp", ct.c_ulonglong),("address", ct.c_ulonglong), ("size", ct.c_ulonglong), ("pid", ct.c_int), \
