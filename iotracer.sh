@@ -4,6 +4,7 @@ traced_inode=$(ls -d . -i |cut -f1 -d" ")
 level="vpfb"
 output_filename=iotracer_trace.txt
 
+IOTRACER=$(dirname $($realpath $0))"/bcc_iotracer.py"
 usage()
 {
 cat << EOF
@@ -51,7 +52,7 @@ fi
 cmd=$@
 traced_task=$(basename $1)
 trace_filter_option="-d"
-IOTRACER=$(dirname $($realpath $0))"/bcc_iotracer.py"
+
 
 echo "# Running python $IOTRACER -t $traced_task $trace_filter_option -i $traced_inode -l $level > iotracer_trace.txt &"
 python $IOTRACER -t $traced_task $trace_filter_option -i $traced_inode -l $level > "$output_filename" &
