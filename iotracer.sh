@@ -51,7 +51,7 @@ fi
 cmd=$@
 traced_task=$(basename $1)
 trace_filter_option="-d"
-IOTRACER=/home/ftrahay/Soft/eziotrace/src/iotracer/bcc_iotracer.py
+IOTRACER=$(dirname $($realpath $0))"/bcc_iotracer.py"
 
 echo "# Running python $IOTRACER -t $traced_task $trace_filter_option -i $traced_inode -l $level > iotracer_trace.txt &"
 python $IOTRACER -t $traced_task $trace_filter_option -i $traced_inode -l $level > "$output_filename" &
