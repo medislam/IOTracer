@@ -4,7 +4,8 @@ traced_inode=$(ls -d . -i |cut -f1 -d" ")
 level="vpfb"
 output_filename=iotracer_trace.txt
 
-IOTRACER=$(dirname $($realpath $0))"/bcc_iotracer.py"
+
+IOTRACER=$(dirname $(realpath $0))"/bcc_iotracer.py"
 usage()
 {
 cat << EOF
@@ -18,7 +19,6 @@ OPTIONS:
    -l <level>	       	            Select events to trace
 EOF
 }
-
 
 while getopts 'i:l:o:d:' OPTION; do
   case $OPTION in
