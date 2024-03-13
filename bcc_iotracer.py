@@ -11,7 +11,7 @@ from subprocess import check_output
 
 # arguments
 examples ="""
-	./bcc_iotracer.py -t task_name -f [-d] -i inode -l levels
+	./bcc_iotracer.py [-o output_file] -t task_name -f [-d] -i inode -l levels
 	# trace task (specified by its pid) I/O on a dir/file inode. if dir is chosen, no recusivity is done
 """
 
@@ -20,6 +20,9 @@ parser = argparse.ArgumentParser(
     description="Trace VFS and Block I/O",
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog=examples)
+
+parser.add_argument("-o", "--output_file",
+                    help="output file")
 
 parser.add_argument("-t", "--task",
                     help="trace this task only")
@@ -651,7 +654,13 @@ def afficher_evenement(cpu, data, size):
     	evenement.probe.decode("utf8"),evenement.label.decode("utf8"),evenement.pid, evenement.tid,\
     	evenement.comm.decode("utf8"), evenement.inode, evenement.inodep)
     format_ = "%.0f\t%s\t%s\t%.0f\t%.0f\t%s\t%s\t%d\t%d\t%s\t%.0f\t%.0f"
-    print(format_ % log)
+
+    if args.output_file:
+        traceFile=open(args.output_file, "a")
+        print(format_ % log, file=traceFile)
+        traceFile.close()
+    else:
+        print(format_ % log)
     #evenement = b["events"].event(data)
     #print("%.0f, %.0f, %.0f, %s, %s, %d, %s" ,evenement.timestamp,evenement.address,evenement.size,evenement.level,evenement.op,evenement.pid,evenement.comm)
 
